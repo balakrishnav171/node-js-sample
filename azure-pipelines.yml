@@ -1,0 +1,77 @@
+trigger:
+- main
+
+variables:
+  dockerRegistryServiceConnection: 'ACR-Service-Connection'
+  imageRepository: 'nodejs-app'
+  containerRegistry: 'youracr.azurecr.io'
+  dockerfilePath: '$(Build.SourcesDirectory)/Dockerfile'
+  tag: '$(Build.BuildId)'
+
+stages:
+
+# -------------------
+# CI Stage
+# -------------------
+- stage: Build
+  displayName: Build and Push Image
+  jobs:
+  - job: Build
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+
+    - task: Docker@2
+      displayName: Build and Push
+      inputs:
+        containerRegistry: $(dockerRegistryServiceConnection)
+        repository: $(imageRepository)
+        command: 'buildAndPush'
+        Dockerfile: $(dockerfilePath)
+        tags: |
+          $(tag)
+
+# -------------------
+# DEV Deployment
+# -------------------
+- stage: Deploy_Dev
+  displayName: Deploy to Dev
+  dependsOn: Build
+  jobs:
+  - deployment: Deploy
+    environment: 'dev'
+    pool:
+      vmImage: 'ubuntu-latest'
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - task: AzureWebAppContainer@1
+            inputs:
+              azureSubscription: 'Azure-Service-Connection'
+              appName: 'nodejs-dev-app'
+              containers: |
+                youracr.azurecr.io/nodejs-app:$(tag)
+
+# -------------------
+# PROD Deployment
+# -------------------
+- stage: Deploy_Prod
+  displayName: Deploy to Prod
+  dependsOn: Deploy_Dev
+  condition: succeeded()
+  jobs:
+  - deployment: Deploy
+    environment: 'prod'
+    pool:
+      vmImage: 'ubuntu-latest'
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - task: AzureWebAppContainer@1
+            inputs:
+              azureSubscription: 'Azure-Service-Connection'
+              appName: 'nodejs-prod-app'
+              containers: |
+                youracr.azurecr.io/nodejs-app:$(tag)
